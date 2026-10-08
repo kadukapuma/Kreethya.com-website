@@ -1,51 +1,39 @@
+import Icon from './Icon'
+
 const STEPS = [
-  {
-    step: '01',
-    title: 'Discover & Plan',
-    desc: 'We dig into your goals, users, and constraints to define scope, milestones, and success metrics.',
-  },
-  {
-    step: '02',
-    title: 'Design',
-    desc: 'Wireframes and prototypes validate the experience before a single line of production code is written.',
-  },
-  {
-    step: '03',
-    title: 'Develop',
-    desc: 'Agile sprints with weekly demos, clean code reviews, and continuous integration from day one.',
-  },
-  {
-    step: '04',
-    title: 'Test & QA',
-    desc: 'Automated test suites and manual QA passes catch issues before they ever reach your users.',
-  },
-  {
-    step: '05',
-    title: 'Deploy & Support',
-    desc: 'We ship to production and stay on to monitor, maintain, and evolve the product with you.',
-  },
+  { icon: 'search', title: 'Discover', desc: 'Your goals and needs.' },
+  { icon: 'file', title: 'Plan', desc: 'The right strategy.' },
+  { icon: 'code', title: 'Develop', desc: 'Modern, clean code.' },
+  { icon: 'shield', title: 'Test', desc: 'Quality and speed.' },
+  { icon: 'rocket', title: 'Deploy', desc: 'Launch and support.' },
 ]
 
 function Process() {
   return (
     <section id="process" className="section">
       <div className="section__head">
-        <span className="eyebrow">How we work</span>
-        <h2>A proven process from idea to production</h2>
-        <p className="section__lede">
-          No black boxes — you'll always know what we're building and why.
-        </p>
+        <div>
+          <span className="eyebrow" data-reveal>
+            Our process
+          </span>
+          <h2 data-reveal style={{ '--d': '80ms' }}>
+            How we <span className="text-grad">work</span>
+          </h2>
+        </div>
       </div>
 
-      <div className="timeline">
-        {STEPS.map((s) => (
-          <div className="timeline__item" key={s.step}>
-            <div className="timeline__number">{s.step}</div>
+      <ol className="process" data-reveal="line">
+        {STEPS.map((s, n) => (
+          <li key={s.title} className="process__step" data-reveal="pop" style={{ '--d': `${n * 130}ms` }}>
+            <span className="process__icon">
+              <Icon name={s.icon} size={24} />
+              <em>{String(n + 1).padStart(2, '0')}</em>
+            </span>
             <h3>{s.title}</h3>
             <p>{s.desc}</p>
-          </div>
+          </li>
         ))}
-      </div>
+      </ol>
     </section>
   )
 }

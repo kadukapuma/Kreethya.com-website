@@ -1,28 +1,33 @@
 :root {
+  /* Brand — taken from the Kreethya logo */
+  --ink: #0a392c;
+  --forest: #062a21;
+  --teal: #058875;
+  --emerald: #02ca96;
+  --lime: #93dc2c;
+
   --bg: #ffffff;
-  --bg-alt: #f6f7fb;
-  --surface: #ffffff;
-  --text: #4b4d5a;
-  --text-h: #12121a;
-  --muted: #7a7c8c;
-  --border: #e6e7ef;
+  --bg-soft: #f5faf7;
+  --mint: #e7f6ef;
+  --line: #e3eee9;
+  --text: #4d6159;
+  --muted: #84978f;
 
-  --brand: #4f46e5;
-  --brand-dark: #3730a3;
-  --brand-light: #818cf8;
-  --accent: #14b8a6;
-  --accent-dark: #0f9488;
+  --grad: linear-gradient(120deg, #058875 0%, #02ca96 55%, #93dc2c 100%);
+  --grad-soft: linear-gradient(140deg, #f2fbf7 0%, #e3f7ee 100%);
 
-  --gradient: linear-gradient(135deg, #4f46e5 0%, #4338ca 45%, #0f172a 100%);
-  --shadow-sm: 0 1px 2px rgba(16, 17, 32, 0.06);
-  --shadow-md: 0 8px 24px rgba(16, 17, 32, 0.08);
-  --shadow-lg: 0 20px 48px rgba(16, 17, 32, 0.14);
+  --shadow-sm: 0 1px 2px rgba(6, 42, 33, 0.06);
+  --shadow-md: 0 12px 30px -12px rgba(6, 42, 33, 0.16);
+  --shadow-lg: 0 30px 60px -20px rgba(6, 42, 33, 0.28);
+  --glow: 0 18px 40px -14px rgba(2, 202, 150, 0.55);
 
-  --sans: 'Segoe UI', system-ui, Roboto, Helvetica, Arial, sans-serif;
-  --radius: 14px;
+  --font: 'Poppins', system-ui, 'Segoe UI', Roboto, Arial, sans-serif;
+  --radius: 22px;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
-  color-scheme: light dark;
-  font-family: var(--sans);
+  color-scheme: light;
+  font-family: var(--font);
   color: var(--text);
   background: var(--bg);
   font-synthesis: none;
@@ -31,27 +36,13 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0b0c14;
-    --bg-alt: #11121c;
-    --surface: #14151f;
-    --text: #b9bbc9;
-    --text-h: #f5f5f8;
-    --muted: #8a8ca0;
-    --border: #262838;
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35);
-    --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.5);
-  }
-}
-
 * {
   box-sizing: border-box;
 }
 
 html {
   scroll-behavior: smooth;
+  scroll-padding-top: 96px;
 }
 
 body {
@@ -59,10 +50,16 @@ body {
   background: var(--bg);
 }
 
+::selection {
+  background: var(--emerald);
+  color: #fff;
+}
+
 h1, h2, h3, h4 {
-  color: var(--text-h);
-  font-weight: 700;
-  line-height: 1.15;
+  color: var(--ink);
+  font-weight: 600;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
   margin: 0;
 }
 
@@ -80,8 +77,13 @@ img {
   display: block;
 }
 
-button {
+button,
+input,
+textarea {
   font-family: inherit;
+}
+
+button {
   cursor: pointer;
 }
 
@@ -95,5 +97,11 @@ ul {
   min-height: 100svh;
   display: flex;
   flex-direction: column;
-  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
 }

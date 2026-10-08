@@ -1,54 +1,58 @@
+import Icon from './Icon'
+
 const SERVICES = [
-  {
-    icon: '🌐',
-    title: 'Web App Development',
-    desc: 'Fast, accessible, and scalable web applications built with modern frameworks and clean architecture.',
-  },
-  {
-    icon: '📱',
-    title: 'Mobile App Development',
-    desc: 'Native and cross-platform apps for iOS and Android that feel fast and native from day one.',
-  },
-  {
-    icon: '☁️',
-    title: 'Cloud & DevOps',
-    desc: 'CI/CD pipelines, containerization, and cloud infrastructure on AWS, Azure, or GCP built for reliability.',
-  },
-  {
-    icon: '🎨',
-    title: 'UI/UX Design',
-    desc: 'Research-driven product design that turns complex workflows into simple, delightful interfaces.',
-  },
-  {
-    icon: '🧩',
-    title: 'Custom Enterprise Software',
-    desc: 'Bespoke internal tools, ERPs, and integrations that fit the way your business actually works.',
-  },
-  {
-    icon: '✅',
-    title: 'QA & Testing',
-    desc: 'Automated and manual testing pipelines that catch issues before your users ever do.',
-  },
+  { icon: 'globe', title: 'Web Development', desc: 'Fast, scalable web applications.' },
+  { icon: 'phone', title: 'Mobile Apps', desc: 'Android and iOS apps people love.' },
+  { icon: 'code', title: 'Custom Software', desc: 'Systems built around your workflow.' },
+  { icon: 'palette', title: 'UI/UX Design', desc: 'Clean interfaces that convert.' },
+  { icon: 'cloud', title: 'Cloud & DevOps', desc: 'Reliable deployment and hosting.' },
+  { icon: 'gear', title: 'Maintenance & Support', desc: 'We keep things running smoothly.' },
 ]
+
+// Cards lean towards the pointer.
+const tilt = (e) => {
+  const el = e.currentTarget
+  const r = el.getBoundingClientRect()
+  el.style.setProperty('--tx', `${((e.clientY - r.top) / r.height - 0.5) * -10}deg`)
+  el.style.setProperty('--ty', `${((e.clientX - r.left) / r.width - 0.5) * 10}deg`)
+  el.style.setProperty('--mx', `${e.clientX - r.left}px`)
+  el.style.setProperty('--my', `${e.clientY - r.top}px`)
+}
+const untilt = (e) => {
+  e.currentTarget.style.setProperty('--tx', '0deg')
+  e.currentTarget.style.setProperty('--ty', '0deg')
+}
 
 function Services() {
   return (
     <section id="services" className="section">
       <div className="section__head">
-        <span className="eyebrow">What we do</span>
-        <h2>Services built around your product goals</h2>
-        <p className="section__lede">
-          From a single feature to a full platform rebuild, our team plugs in wherever
-          you need us most.
-        </p>
+        <div>
+          <span className="eyebrow" data-reveal>
+            Our services
+          </span>
+          <h2 data-reveal style={{ '--d': '80ms' }}>
+            Complete software solutions <span className="text-grad">for your business</span>
+          </h2>
+        </div>
+        <a href="#contact" className="btn btn--ghost btn--sm" data-reveal style={{ '--d': '160ms' }}>
+          Discuss a project <Icon name="arrow" size={16} />
+        </a>
       </div>
 
-      <div className="grid grid--3">
-        {SERVICES.map((s) => (
-          <div className="card" key={s.title}>
-            <div className="card__icon">{s.icon}</div>
-            <h3>{s.title}</h3>
-            <p>{s.desc}</p>
+      <div className="services">
+        {SERVICES.map((s, n) => (
+          <div key={s.title} data-reveal="pop" style={{ '--d': `${(n % 3) * 90 + Math.floor(n / 3) * 60}ms` }}>
+            <article className="service" onMouseMove={tilt} onMouseLeave={untilt}>
+              <span className="service__icon">
+                <Icon name={s.icon} size={26} />
+              </span>
+              <h3>{s.title}</h3>
+              <p>{s.desc}</p>
+              <span className="service__more">
+                <Icon name="arrow" size={18} />
+              </span>
+            </article>
           </div>
         ))}
       </div>
