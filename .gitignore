@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Standalone copy of the intro for other sites (kept out of this repo)
+kreethya-intro/
+
+# The HP (hire purchase) app source, kept here only to prepare server changes
+check/

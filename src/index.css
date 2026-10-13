@@ -43,6 +43,8 @@
 html {
   scroll-behavior: smooth;
   scroll-padding-top: 96px;
+  /* keep the scrollbar's space even while the intro hides it, so the page never shifts when it ends */
+  scrollbar-gutter: stable;
 }
 
 body {

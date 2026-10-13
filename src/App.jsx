@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import KLoader from './components/KLoader'
 import Navbar from './components/Navbar'
 import Hero from './components/Hero'
@@ -16,6 +16,14 @@ import './App.css'
 
 function App() {
   const [loading, setLoading] = useState(true)
+  // the intro screen has started to come off, so the page's entrance animations can play
+  const [revealed, setRevealed] = useState(false)
+  // One robot for the whole visit: the intro's ball turns into it, it pulls the
+  // intro screen away like a curtain, then flies to its spot on the page.
+  const robot = useRef({
+    pose: 'idle', move: 0, face: 0, jumpReq: false, hidden: true, ready: false, intro: null, jetpack: 1,
+    curtainPull: null,
+  })
 
   // Keep the page from scrolling behind the intro screen
   useEffect(() => {
@@ -25,12 +33,12 @@ function App() {
     }
   }, [loading])
 
-  // Sections emerge as they scroll into view (after the intro has finished)
-  useReveal(!loading)
+  // Sections emerge as they scroll into view (as soon as the intro screen starts coming off)
+  useReveal(revealed)
 
   return (
     <>
-      {loading && <KLoader onFinish={() => setLoading(false)} />}
+      {loading && <KLoader robot={robot} onReveal={() => setRevealed(true)} onFinish={() => setLoading(false)} />}
       <Navbar />
       <main>
         <Hero />
@@ -43,7 +51,7 @@ function App() {
         <Contact />
       </main>
       <Footer />
-      {!loading && <Mascot />}
+      <Mascot control={robot} intro={loading} />
     </>
   )
 }

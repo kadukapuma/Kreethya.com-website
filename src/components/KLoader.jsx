@@ -11,7 +11,8 @@ import { useEffect, useRef, useState } from "react";
  *    The ball drops, bounces, and rolls to a stop under the wordmark.
  * 2. The drawn K turns into the Kreethya mark.
  * 3. The wordmark slides in from the right, then the tagline.
- * 4. The screen fades out and onFinish() is called: open the home page there.
+ * 4. The screen fades out (or, with the robot, is pulled away like a curtain)
+ *    and onFinish() is called: open the home page there.
  *
  * Props
  *   logoSrc    optional. The Kreethya logo is built into this file, so it
@@ -23,6 +24,18 @@ import { useEffect, useRef, useState } from "react";
  *   progress   optional 0-100, shown as a thin bar while waiting.
  *   fullscreen true (default) covers the viewport; false fills its parent.
  *   alt        accessible name of the logo. Default "Kreethya".
+ *   robot      optional ref shared with the page's robot (see Mascot.jsx). When
+ *              given, the throw waits (briefly) for robot.current.ready, and
+ *              the ball turns into the robot where it lands: the loader writes
+ *              robot.current.intro = { x, y, w, stage } in screen pixels, with
+ *              stage "in" (tumbling) -> "done" -> "grab": the robot flies to
+ *              this screen's left edge and drags it off to the right like a
+ *              curtain, writing robot.current.curtainPull = { t0, ms } as it
+ *              starts; the screen slides away with its edge in its hands.
+ *              If the robot never starts pulling (or did not form), the screen
+ *              fades instead and the stage is "fly" (straight to its spot).
+ *              If the robot is not ready by then, the ball just rolls as before.
+ *   onReveal   called once, as the home page starts to show (pull or fade).
  *
  * Colours come from CSS variables, each with a built-in fallback:
  *   --ground --teal --emerald --lime --smoke --track
@@ -48,6 +61,10 @@ const G = [720, BP[1]]; // where the bottom plate catches the ball on the way in
 const PAD = { len: 240, th: 34, topY: TP[1] - 57, botY: BP[1] + 57 }; // the two plates, like a paddle game
 const DOCK = { x: 62, topY: 100, botY: 280, len: 180, th: 106, time: 0.55 }; // where they stand up to become the pole
 const REST_X = 1180; // where the ball rolls to a stop, under the wordmark
+// The robot the ball turns into (logo pixels). Its head sits where the ball was.
+// tumble: ms the robot takes to form; settle: how long the finished logo holds at least.
+// giveUp: ms to wait for the robot to start pulling this screen away before just fading it.
+const ROBO = { w: 340, headY: 460, minX: 560, maxX: 1300, tumble: 700, settle: 900, wait: 1500, giveUp: 2500 };
 const R = 40; // ball radius
 const FALL = 0.7; // seconds from the top of the screen to the ground
 const HOP = 0.36; // seconds from the ground to the stem
@@ -66,6 +83,17 @@ display:grid;place-items:center;overflow:hidden;background:var(--kl-ground);tran
 .kl--full{position:fixed;inset:0;z-index:9999}
 .kl--fill{position:relative;width:100%;height:100%;min-height:300px}
 .kl--out{opacity:0;pointer-events:none}
+.kl--pull{pointer-events:none;--sheer:clamp(0,calc(var(--pull,0) * 5),1);
+background:rgba(254,254,254,calc(1 - var(--sheer) * .5));will-change:transform}
+.kl--pull::before,.kl--pull::after{content:"";position:absolute;pointer-events:none;opacity:var(--sheer)}
+.kl--pull::before{inset:0;background:repeating-linear-gradient(90deg,rgba(255,255,255,.95) 0,rgba(255,255,255,.35) 36px,rgba(232,246,240,.75) 65px,rgba(255,255,255,.3) 96px,rgba(255,255,255,.95) 130px)}
+.kl--pull::after{top:0;bottom:0;left:-60%;width:220%;background:linear-gradient(100deg,rgba(255,255,255,0) 38%,rgba(255,255,255,.7) 48%,rgba(220,245,234,.35) 52%,rgba(255,255,255,0) 62%);
+animation:kl-silk 1.6s ease-in-out infinite alternate;will-change:transform}
+@keyframes kl-silk{0%{transform:translateX(-18%)}100%{transform:translateX(18%)}}
+.kl__edge{display:none}
+.kl--pull .kl__edge{display:block;position:absolute;top:0;bottom:0;left:0;width:34px;z-index:3;pointer-events:none;
+background:linear-gradient(90deg,rgba(255,255,255,1) 0,rgba(214,242,231,.95) 2px,rgba(255,255,255,.9) 5px,rgba(6,42,33,.10) 6px,rgba(6,42,33,0) 34px)}
+.kl--pull .kl__logo{opacity:calc(1 - var(--sheer))}
 .kl__logo{position:relative;width:min(560px,84vw);aspect-ratio:${W}/${H}}
 .kl__logo canvas{position:absolute;inset:-170% -8%;width:116%;height:440%;pointer-events:none}
 .kl__logo svg,.kl__logo img{position:absolute;inset:0;width:100%;height:100%;display:block;overflow:visible}
@@ -102,6 +130,16 @@ background-image:linear-gradient(100deg,var(--kl-teal) 0%,var(--kl-emerald) 38%,
 `;
 
 const dist = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+// Tell the shared robot (see Mascot.jsx) which part of its intro to play.
+const easeInOutSine = (k) => -(Math.cos(Math.PI * Math.min(1, Math.max(0, k))) - 1) / 2;
+// Tell the robot not to pull this screen (it is fading instead), so it flies straight home.
+const skipPull = (robot) => {
+  if (robot) robot.current.skipPull = true;
+};
+const setIntroStage = (robot, stage) => {
+  const intro = robot && robot.current.intro;
+  if (intro) intro.stage = stage;
+};
 const rnd = (n) => (Math.random() - 0.5) * n;
 const hex = (v, fallback) => {
   const m = /^#?([0-9a-f]{6})$/i.exec((v || "").trim());
@@ -116,9 +154,15 @@ export default function KLoader({
   progress,
   fullscreen = true,
   alt = "Kreethya",
+  robot,
+  onReveal,
 }) {
   // draw -> logo (mark + wordmark arrive) -> settled -> out -> gone
   const [phase, setPhase] = useState("draw");
+  // the ball-to-robot transformation: null -> "in" (tumbling) -> "done"
+  const [robo, setRobo] = useState(null);
+  // with a robot, the home page waits until the ball has either transformed or come to rest
+  const [ballOut, setBallOut] = useState(!robot);
   const rootRef = useRef(null);
   const canvasRef = useRef(null);
   const svgRef = useRef(null);
@@ -133,8 +177,10 @@ export default function KLoader({
   const padTRef = useRef(null);
   const padBRef = useRef(null);
   const finishRef = useRef(onFinish);
+  const revealRef = useRef(onReveal);
   useEffect(() => {
     finishRef.current = onFinish;
+    revealRef.current = onReveal;
   });
 
   const reduced =
@@ -171,6 +217,9 @@ export default function KLoader({
     let parts = [];
     const pads = { t: { x: 780, k: 0 }, b: { x: 1060, k: 0 } }; // plate positions and recoil
     let dock = -1; // -1: plates still playing; 0..1: standing up into the pole
+    let morph = -1; // >= 0: seconds since the ball started turning into the robot
+    let mx = 0;
+    let my = 0;
     let map = { s: 1, ox: 0, oy: 0 };
 
     const resize = () => {
@@ -202,7 +251,16 @@ export default function KLoader({
     };
     const arm = (el, f) => el && el.setAttribute("stroke-dashoffset", String(1 - f));
 
+    const t0 = performance.now();
+    let waiting = !!robot;
     const frame = (now) => {
+      if (waiting) {
+        // hold the throw (blank screen) until the robot is set up, so it can't stutter later
+        if (robot.current.ready || robot.current.failed || now - t0 > ROBO.wait) waiting = false;
+        last = now;
+        raf = requestAnimationFrame(frame);
+        return;
+      }
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       let x;
@@ -333,12 +391,49 @@ export default function KLoader({
           free.vx = Math.max(0, free.vx - free.a * dt);
           free.x += free.vx * dt;
         }
+        if (free.y >= GROUND && robot && robot.current.ready) {
+          // transformer moment: the ball bursts open on the floor and the robot tumbles out
+          mx = free.x;
+          my = free.y;
+          morph = 0;
+          free = null;
+          burst(mx, my, 0, 26);
+          burst(mx, my + 30, 0, 10);
+          // tell the page's robot where to appear, in screen pixels (its head where the ball was)
+          const r = svg.getBoundingClientRect();
+          const rx = Math.max(ROBO.minX, Math.min(ROBO.maxX, mx));
+          robot.current.intro = {
+            stage: "in",
+            x: r.left + (rx / W) * r.width,
+            y: r.top + (ROBO.headY / H) * r.height,
+            w: (ROBO.w / W) * r.width,
+          };
+          setRobo({ stage: "in" });
+        }
+      }
+      if (free) {
         spin += ((free.vx * dt) / R) * (180 / Math.PI);
         if (ballRef.current) {
           ballRef.current.setAttribute("transform", `translate(${free.x.toFixed(1)} ${free.y.toFixed(1)})`);
           if (spinRef.current) spinRef.current.setAttribute("transform", `rotate(${spin.toFixed(1)})`);
         }
-        if (free.rolling && free.vx === 0) free = null;
+        if (free.rolling && free.vx === 0) {
+          free = null;
+          setBallOut(true); // came to rest without the robot (it did not load in time)
+        }
+      }
+      if (morph >= 0) {
+        // the ball whirls, swells and pops while the robot unfolds from it
+        morph += dt;
+        const k = Math.min(1, morph / 0.3);
+        spin += 1600 * dt;
+        const s = (1 + 0.6 * Math.sin(k * Math.PI * 0.8)) * (1 - k * k);
+        if (ballRef.current) {
+          ballRef.current.setAttribute("transform", `translate(${mx.toFixed(1)} ${my.toFixed(1)}) scale(${Math.max(0.001, s).toFixed(3)})`);
+          ballRef.current.style.opacity = String(1 - k * k);
+          if (spinRef.current) spinRef.current.setAttribute("transform", `rotate(${spin.toFixed(1)})`);
+        }
+        if (k >= 1) morph = -2;
       }
       kick = Math.max(0, kick - dt * 5);
       if (builtRef.current) {
@@ -371,7 +466,7 @@ export default function KLoader({
         ctx.fill();
       }
 
-      if (!stopped || free || parts.length || dock < 1) raf = requestAnimationFrame(frame);
+      if (!stopped || free || morph >= 0 || parts.length || dock < 1) raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
 
@@ -379,19 +474,73 @@ export default function KLoader({
       cancelAnimationFrame(raf);
       if (ro) ro.disconnect();
     };
-  }, [reduced]);
+  }, [reduced, robot]);
 
-  // Logo reveal -> settled -> (when done) fade out -> onFinish.
+  // The robot: tumble out of the ball, then straight off (it says welcome on the page).
+  const roboStage = robo && robo.stage;
+  useEffect(() => {
+    if (roboStage) setIntroStage(robot, roboStage);
+    if (roboStage === "in") {
+      const t = setTimeout(() => setRobo({ stage: "done" }), ROBO.tumble);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+  }, [roboStage, robot]);
+
+  // Logo reveal -> settled -> (when done, and the robot has formed) fade out -> onFinish.
+  // With the robot the logo holds only briefly: the robot flying off is the finale.
+  const roboBusy = reduced ? false : roboStage === "in" || (!ballOut && roboStage !== "done");
   useEffect(() => {
     if (phase === "logo") {
-      const t = setTimeout(() => setPhase("settled"), reduced ? 700 : 3000);
+      const t = setTimeout(() => setPhase("settled"), reduced ? 700 : robot ? ROBO.settle : 3000);
       return () => clearTimeout(t);
     }
-    if (phase === "settled" && done) {
-      const t = setTimeout(() => setPhase("out"), 0);
+    if (phase === "settled" && done && !roboBusy) {
+      // a formed robot pulls this screen away like a curtain; otherwise it just fades
+      const next = robot && roboStage === "done" && !robot.current.failed ? "pull" : "out";
+      const t = setTimeout(() => setPhase(next), 0);
       return () => clearTimeout(t);
+    }
+    if (phase === "pull") {
+      // the robot flies to the left edge, grabs it and drags this screen off to the right,
+      // uncovering the home page behind its hands (it writes robot.current.curtainPull)
+      setIntroStage(robot, "grab");
+      const el = rootRef.current;
+      const c = robot.current;
+      const t0 = performance.now();
+      let raf = 0;
+      let started = false;
+      const loop = (now) => {
+        const pull = c.curtainPull;
+        if (!pull && (c.failed || now - t0 > ROBO.giveUp)) {
+          skipPull(robot); // the robot never got to it: fade instead
+          setPhase("out");
+          return;
+        }
+        if (pull && !started) {
+          started = true;
+          if (revealRef.current) revealRef.current();
+        }
+        const q = pull ? easeInOutSine((now - pull.t0) / pull.ms) : 0;
+        if (el) {
+          el.style.setProperty("--pull", q.toFixed(4));
+          // slide the whole screen off to the right (cheap for the graphics card, so it stays smooth)
+          el.style.transform = `translate3d(${(q * 100).toFixed(3)}%, 0, 0)`;
+        }
+        if (q >= 1) {
+          setPhase("gone");
+          if (finishRef.current) finishRef.current();
+          return;
+        }
+        raf = requestAnimationFrame(loop);
+      };
+      raf = requestAnimationFrame(loop);
+      return () => cancelAnimationFrame(raf);
     }
     if (phase === "out") {
+      // the screen fades: the robot (if any) takes off for its spot on the home page
+      setIntroStage(robot, "fly");
+      if (revealRef.current) revealRef.current();
       const t = setTimeout(() => {
         setPhase("gone");
         if (finishRef.current) finishRef.current();
@@ -399,19 +548,21 @@ export default function KLoader({
       return () => clearTimeout(t);
     }
     return undefined;
-  }, [phase, done, reduced]);
+  }, [phase, done, reduced, roboBusy, roboStage, robot]);
 
   if (phase === "gone") return null;
 
   const shown = phase !== "draw";
   const hasPct = typeof progress === "number" && !Number.isNaN(progress);
   const value = hasPct ? Math.max(0, Math.min(100, Math.round(progress))) : null;
-  const showBar = phase !== "out" && (hasPct || !done);
-  const cls = `kl ${fullscreen ? "kl--full" : "kl--fill"}${shown ? " kl--logo" : ""}${phase === "out" ? " kl--out" : ""}`;
+  const showBar = phase !== "out" && phase !== "pull" && (hasPct || !done);
+  const cls = `kl ${fullscreen ? "kl--full" : "kl--fill"}${shown ? " kl--logo" : ""}${phase === "out" ? " kl--out" : ""}${phase === "pull" ? " kl--pull" : ""}`;
 
   return (
     <div ref={rootRef} className={cls} role="status" aria-live="polite" aria-label={shown ? alt : `${alt} is loading`}>
       <style>{CSS}</style>
+      {/* the edge the robot holds while it pulls this screen away */}
+      <span className="kl__edge" aria-hidden="true" />
       <div className="kl__logo">
         <canvas ref={canvasRef} aria-hidden="true" />
         <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">

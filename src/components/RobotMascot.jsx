@@ -9,16 +9,58 @@
  *   interactive  follow the mouse, wave on hover, jump on click (default true)
  *   shadow       soft shadow under the wheels (default true)
  *   autoWave     wave by itself every few seconds (default true)
+ *   jetpack      build a jetpack on its back (default false); see control.jetpack / thrust
+ *   jetColor     colour of the jetpack thrusters (any CSS hex colour)
  *   control      optional ref to an object the page writes to every frame:
  *                  pose     'idle' | 'hi' (both hands up) | 'bye' (waving)
  *                  move     -1..1, leans and spins the wheels (e.g. scroll speed)
  *                  face     -1..1, turns the body left / right
  *                  jumpReq  set true to make it do a happy jump with a spin
+ *                  fly      0..1, superhero flying pose: tilts head-first, arms forward,
+ *                           jet flames trailing behind (use with face = ±2.3 to fly sideways)
+ *                  flyDir   -1 flying left, 1 flying right
+ *                  roll     extra spin (radians) about the screen axis, e.g. a mid-air somersault
+ *                  waddle   0..1, a funny slow walk: body rocks, head shakes, steps bounce, arms swing
+ *                  jetpack  1: wearing the jetpack, 0: take it off (it drops away)
+ *                  thrust   0..1.5, how strongly the jet flames burn (above 1: boost)
+ *                  hidden   true: draw one frame, then pause until it is false
+ *                  ready    set by the robot once its shaders are compiled and
+ *                           its first frame is drawn (safe to show without a hitch)
  *
  * The background is transparent, so it sits on top of any section of your site.
  */
 import { useEffect, useRef } from "react";
-import * as THREE from "three";
+// Named imports, so the build keeps only the parts of three.js the robot uses.
+import {
+  ACESFilmicToneMapping, AdditiveBlending, BoxGeometry, CanvasTexture, CircleGeometry, Clock, Color,
+  CylinderGeometry, DirectionalLight, DoubleSide, Group, HemisphereLight, Mesh, MeshBasicMaterial,
+  MeshPhysicalMaterial, PMREMGenerator, PerspectiveCamera, PlaneGeometry, PointLight, SRGBColorSpace,
+  Scene, SphereGeometry, Sprite, SpriteMaterial, TorusGeometry, WebGLRenderer, ConeGeometry,
+} from "three";
+
+const THREE = {
+  ACESFilmicToneMapping, AdditiveBlending, BoxGeometry, CanvasTexture, CircleGeometry, Clock, Color,
+  CylinderGeometry, DirectionalLight, DoubleSide, Group, HemisphereLight, Mesh, MeshBasicMaterial,
+  MeshPhysicalMaterial, PMREMGenerator, PerspectiveCamera, PlaneGeometry, PointLight, SRGBColorSpace,
+  Scene, SphereGeometry, Sprite, SpriteMaterial, TorusGeometry, WebGLRenderer, ConeGeometry,
+};
+
+// three.js needs WebGL 2. Some computers (old graphics drivers, remote desktops,
+// hardware acceleration switched off) don't have it.
+let webglOk = null;
+function hasWebGL2() {
+  if (webglOk === null) {
+    try {
+      const c = document.createElement("canvas");
+      const gl = c.getContext("webgl2");
+      webglOk = !!gl;
+      if (gl) gl.getExtension("WEBGL_lose_context")?.loseContext();
+    } catch {
+      webglOk = false;
+    }
+  }
+  return webglOk;
+}
 
 export default function RobotMascot({
   size = 360,
@@ -26,6 +68,8 @@ export default function RobotMascot({
   interactive = true,
   shadow = true,
   autoWave = true,
+  jetpack = false,
+  jetColor = "#058875",
   control,
   className,
   style,
@@ -34,11 +78,11 @@ export default function RobotMascot({
 
   useEffect(() => {
     if (!holder.current) return undefined;
-    const robot = mountRobot(THREE, holder.current, {
-      accent, interactive, shadow, autoWave, control: control && control.current,
+    const robot = startRobot(holder.current, {
+      accent, interactive, shadow, autoWave, jetpack, jetColor, control: control && control.current,
     });
-    return () => robot.dispose();
-  }, [accent, interactive, shadow, autoWave, control]);
+    return () => robot && robot.dispose();
+  }, [accent, interactive, shadow, autoWave, jetpack, jetColor, control]);
 
   return (
     <div
@@ -51,6 +95,20 @@ export default function RobotMascot({
   );
 }
 
+/* If 3D can't run on this device, report it (control.failed) and show nothing,
+ * instead of throwing and taking the whole page down. */
+function startRobot(container, options) {
+  if (hasWebGL2()) {
+    try {
+      return mountRobot(THREE, container, options);
+    } catch (err) {
+      console.warn("RobotMascot: 3D is not available here.", err);
+    }
+  }
+  if (options.control) options.control.failed = true;
+  return null;
+}
+
 /* ------------------------------------------------------------------ *
  * mountRobot(THREE, container, options)
  * Builds the robot from basic shapes (no model file to download),
@@ -58,7 +116,7 @@ export default function RobotMascot({
  * ------------------------------------------------------------------ */
 function mountRobot(THREE, container, options) {
   const opts = Object.assign(
-    { accent: "#22e06b", interactive: true, shadow: true, autoWave: true, control: null },
+    { accent: "#22e06b", interactive: true, shadow: true, autoWave: true, jetpack: false, jetColor: "#058875", control: null },
     options || {}
   );
   const ctl = opts.control || {};
@@ -215,8 +273,15 @@ function mountRobot(THREE, container, options) {
   }
 
   /* ================== BUILD THE ROBOT ================== */
+  // The pivot tilts the whole robot about its middle (flying head-first);
+  // root does everything else and has its feet at y = 0.
+  const PIVOT_Y = 2.4;
+  const pivot = new THREE.Group();
+  pivot.position.y = PIVOT_Y;
+  scene.add(pivot);
   const root = new THREE.Group();
-  scene.add(root);
+  root.position.y = -PIVOT_Y;
+  pivot.add(root);
 
   /* ---- wheels + lower body ---- */
   const WHEEL_R = 0.5;
@@ -320,6 +385,86 @@ function mountRobot(THREE, container, options) {
   bulbHalo.position.y = 0.6;
   antenna.add(bulb, bulbHalo);
 
+  /* ---- jetpack: two thrusters strapped to the back, with flames ---- */
+  // ctl.jetpack (0/1) puts it on or drops it off; ctl.thrust (0..1) lights the flames.
+  const JET = { y: 0.72, z: -0.66 };
+  let jet = null;
+  const flames = [];
+  if (opts.jetpack) {
+    jet = new THREE.Group();
+    jet.position.set(0, JET.y, JET.z);
+    upper.add(jet);
+    const jetMat = track(new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(opts.jetColor), roughness: 0.28, metalness: 0.35, clearcoat: 1, clearcoatRoughness: 0.1,
+    }));
+    jet.add(mesh(geo(new THREE.BoxGeometry(0.9, 0.8, 0.16)), black, 0, 0.02, 0.02)); // back plate
+    const bodyGeo = geo(new THREE.CylinderGeometry(0.23, 0.23, 0.9, 28));
+    const capGeo = geo(new THREE.SphereGeometry(0.23, 28, 16, 0, Math.PI * 2, 0, Math.PI / 2));
+    const bandGeo = geo(new THREE.CylinderGeometry(0.237, 0.237, 0.07, 28));
+    const nozzleGeo = geo(new THREE.CylinderGeometry(0.17, 0.25, 0.22, 28, 1, true));
+    const outerGeo = geo(new THREE.ConeGeometry(0.22, 1, 20, 1, true));
+    const innerGeo = geo(new THREE.ConeGeometry(0.12, 1, 16, 1, true));
+    const wideGeo = geo(new THREE.ConeGeometry(0.31, 1, 20, 1, true));
+    // solid (not additive) flames, so they read clearly on a white page
+    const flameMat = (color, opacity) => track(new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity, depthWrite: false,
+      side: THREE.DoubleSide, toneMapped: false,
+    }));
+    const outerMat = flameMat(0x02ca96, 0.75); // emerald
+    const innerMat = flameMat(0xe4ffb8, 0.9); // pale lime-white core
+    const wideMat = flameMat(0x058875, 0.45); // the wide, soft teal outer flame
+    const glowMatJet = track(new THREE.SpriteMaterial({
+      map: haloTex, color: 0x93dc2c, transparent: true, opacity: 0.4,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    [-1, 1].forEach((side) => {
+      const tube = new THREE.Group();
+      tube.position.set(side * 0.33, 0, -0.22);
+      tube.add(mesh(bodyGeo, jetMat));
+      tube.add(mesh(capGeo, jetMat, 0, 0.45, 0));
+      tube.add(mesh(bandGeo, rimMat, 0, 0.18, 0));
+      tube.add(mesh(nozzleGeo, black, 0, -0.56, 0));
+      // the flame hangs below the nozzle; its tip points down (behind it in flight)
+      const flame = new THREE.Group();
+      flame.position.y = -0.67;
+      const outer = mesh(outerGeo, outerMat, 0, -0.5, 0);
+      outer.rotation.x = Math.PI;
+      const inner = mesh(innerGeo, innerMat, 0, -0.5, 0);
+      inner.rotation.x = Math.PI;
+      // three layers, drawn back to front: soft teal outer, emerald, pale lime core
+      const wide = mesh(wideGeo, wideMat, 0, -0.62, 0);
+      wide.rotation.x = Math.PI;
+      wide.scale.y = 1.25;
+      outer.renderOrder = 1;
+      inner.renderOrder = 2;
+      const glow = new THREE.Sprite(glowMatJet);
+      glow.scale.setScalar(0.9);
+      flame.add(wide, outer, inner, glow);
+      // kept "visible" but shrunk to nothing, so it is compiled up front with the rest (no hitch at take-off)
+      flame.scale.setScalar(0.0001);
+      tube.add(flame);
+      jet.add(tube);
+      flames.push(flame);
+    });
+  }
+  let packAmt = ctl.jetpack ? 1 : 0;
+  let thrust = 0;
+  function updateJet(dt, t) {
+    packAmt = damp(packAmt, ctl.jetpack ? 1 : 0, 3.2, dt);
+    // taking it off: it unclips, tips back and drops away while shrinking out of sight
+    const drop = 1 - packAmt;
+    jet.visible = packAmt > 0.02;
+    jet.position.set(0, JET.y - drop * 1.7, JET.z - drop * 0.9);
+    jet.rotation.x = drop * 1.4;
+    jet.scale.setScalar(Math.max(0.001, 1 - drop * drop));
+    thrust = damp(thrust, ctl.jetpack ? ctl.thrust || 0 : 0, 9, dt);
+    flames.forEach((f, n) => {
+      const flicker = 0.82 + 0.18 * Math.sin(t * 47 + n * 2.1) + 0.12 * Math.sin(t * 83 + n);
+      const on = thrust > 0.03 ? 1 : 0.0001;
+      f.scale.set((0.8 + 0.3 * thrust) * on, Math.max(0.0001, thrust * (1.05 + 0.6 * thrust) * flicker * on), (0.8 + 0.3 * thrust) * on);
+    });
+  }
+
   /* ---- soft contact shadow ---- */
   let shadow = null;
   if (opts.shadow) {
@@ -338,6 +483,8 @@ function mountRobot(THREE, container, options) {
   const CENTER_Y = 2.75, HALF_H = 3.15, HALF_W = 2.15;
   function resize() {
     const w = container.clientWidth || 300, h = container.clientHeight || 300;
+    // the pixel density can change (window moved to another monitor, browser zoom)
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     const t = Math.tan((camera.fov * Math.PI) / 360);
@@ -349,6 +496,7 @@ function mountRobot(THREE, container, options) {
   resize();
   const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(resize) : null;
   if (ro) ro.observe(container);
+  window.addEventListener("resize", resize);
 
   /* ---------- interaction ---------- */
   const pointer = { tx: 0, ty: 0, x: 0, y: 0 };
@@ -379,11 +527,20 @@ function mountRobot(THREE, container, options) {
   const damp = (a, b, k, dt) => a + (b - a) * (1 - Math.exp(-k * dt));
   const mix = (a, b, k) => a + (b - a) * k;
   let armWave = 0;
-  let hiAmt = 0, byeAmt = 0, lean = 0, face = 0, roll = 0;
+  let hiAmt = 0, byeAmt = 0, lean = 0, face = 0, roll = 0, flyAmt = 0, wadAmt = 0;
+
+  // Compile the shaders up front (off the main thread where the browser allows it),
+  // so the robot never freezes the page the moment it first appears.
+  let compiled = false;
+  let drawn = false;
+  const onCompiled = () => { compiled = true; };
+  if (renderer.compileAsync) renderer.compileAsync(scene, camera).then(onCompiled, onCompiled);
+  else onCompiled();
 
   function frame() {
     raf = requestAnimationFrame(frame);
-    if (!visible || document.hidden) { clock.getDelta(); return; }
+    // always draw the first frame (even off-screen), so "ready" can be reported
+    if (!compiled || (drawn && (!visible || document.hidden || ctl.hidden))) { clock.getDelta(); return; }
     const dt = Math.min(clock.getDelta(), 0.05);
     now += dt;
     const idle = reduceMotion ? 0 : 1;
@@ -395,6 +552,10 @@ function mountRobot(THREE, container, options) {
     byeAmt = damp(byeAmt, pose === "bye" ? 1 : 0, 6, dt);
     lean = damp(lean, Math.max(-1, Math.min(1, ctl.move || 0)), 6, dt);
     face = damp(face, ctl.face || 0, 4, dt);
+    flyAmt = damp(flyAmt, ctl.fly || 0, 6, dt);
+    wadAmt = damp(wadAmt, ctl.waddle || 0, 8, dt);
+    const stepPh = t * 7; // walking rhythm: slow and lazy
+    const rock = Math.sin(stepPh) * wadAmt * idle;
     roll += lean * dt * 9 * idle;
     if (ctl.jumpReq) { ctl.jumpReq = false; if (now - jumpStart > 0.9 && !reduceMotion) jumpStart = now; }
 
@@ -416,7 +577,10 @@ function mountRobot(THREE, container, options) {
       happy = Math.sin(j * Math.PI);
     }
     happy = Math.max(happy, hiAmt * 0.6, byeAmt * 0.35);
-    root.position.y = jumpY;
+    root.position.y = jumpY - PIVOT_Y + Math.abs(rock) * 0.16; // bouncy steps
+    // flying: tip over head-first in the direction of travel, a little smaller so it stays in frame
+    pivot.rotation.z = -(ctl.flyDir || 1) * flyAmt * 1.0 + (ctl.roll || 0);
+    pivot.scale.setScalar(1 - 0.22 * flyAmt);
     root.rotation.y = pointer.x * 0.14 + spin + face * 0.45;
     // lean into the scroll like it is riding along, with a little wobble
     root.rotation.x = Math.abs(lean) * 0.12;
@@ -464,14 +628,29 @@ function mountRobot(THREE, container, options) {
     arms[1].rotation.z = mix(arms[1].rotation.z, 2.55 + cheer, hiAmt);
     arms[0].rotation.x = mix(arms[0].rotation.x, 0, hiAmt);
     arms[1].rotation.x = mix(arms[1].rotation.x, 0, hiAmt);
+    /* waddling: the body rocks side to side, head shakes, arms swing in turn */
+    if (wadAmt > 0.01) {
+      upper.rotation.z += rock * 0.16;
+      head.rotation.z -= rock * 0.12;
+      head.rotation.y += Math.sin(t * 5.5) * 0.42 * wadAmt * idle; // shakes its head side to side
+      arms[0].rotation.x += rock * 0.7;
+      arms[1].rotation.x -= rock * 0.7;
+    }
+    /* flying: both arms stretched forward, superhero style */
+    arms.forEach((arm, n) => {
+      arm.rotation.x = mix(arm.rotation.x, -2.75 + (n ? 0.12 : 0), flyAmt);
+      arm.rotation.z = mix(arm.rotation.z, (n ? 1 : -1) * 0.12, flyAmt);
+    });
+    if (jet) updateJet(dt, t);
 
     if (shadow) {
       shadow.position.x = rollX;
       const s = 1 - jumpY * 0.35;
       shadow.scale.set(s, s, 1);
-      shadow.material.opacity = 1 - jumpY * 0.6;
+      shadow.material.opacity = (1 - jumpY * 0.6) * (1 - flyAmt);
     }
     renderer.render(scene, camera);
+    if (!drawn) { drawn = true; ctl.ready = true; }
   }
   frame();
 
@@ -480,6 +659,7 @@ function mountRobot(THREE, container, options) {
     dispose() {
       cancelAnimationFrame(raf);
       if (ro) ro.disconnect();
+      window.removeEventListener("resize", resize);
       if (io) io.disconnect();
       window.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerenter", onEnter);
@@ -487,6 +667,7 @@ function mountRobot(THREE, container, options) {
       disposables.forEach((d) => d.dispose && d.dispose());
       envTarget.dispose();
       renderer.dispose();
+      renderer.forceContextLoss(); // free the GPU context now, not whenever the browser gets to it
       if (canvas.parentNode === container) container.removeChild(canvas);
     },
   };

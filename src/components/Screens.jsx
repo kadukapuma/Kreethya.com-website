@@ -184,3 +184,64 @@ export function ExamScreen() {
     </div>
   )
 }
+
+// Portrait mobile-app screen for the phone: live map, driver card and a trip sheet.
+export function PhoneRideScreen() {
+  const route = 'M40 520 C 70 470 150 470 160 400 S 120 300 190 250 S 300 200 260 120'
+  return (
+    <div className="pscr">
+      <div className="pscr__map">
+        <svg viewBox="0 0 320 640" preserveAspectRatio="xMidYMid slice">
+          <rect width="320" height="640" fill="#e8f3ee" />
+          <path d="M0 330 Q 120 300 200 360 T 320 330" stroke="#cfe6da" strokeWidth="40" fill="none" />
+          <g stroke="#fff" strokeWidth="10" fill="none" strokeLinecap="round">
+            <path d="M0 180 H320" />
+            <path d="M0 470 H320" />
+            <path d="M90 0 V640" />
+            <path d="M230 0 V640" />
+            <path d="M0 40 L 320 600" opacity=".8" />
+          </g>
+          <rect x="245" y="390" width="60" height="60" rx="10" fill="#d4ecdf" />
+          <rect x="110" y="70" width="90" height="50" rx="10" fill="#d4ecdf" />
+          <path className="scr__route" pathLength="1" d={route} stroke="#058875" strokeWidth="8" fill="none" strokeLinecap="round" />
+          <circle cx="40" cy="520" r="12" fill="#02ca96" stroke="#fff" strokeWidth="5" />
+          <circle cx="260" cy="120" r="12" fill="#0a392c" stroke="#fff" strokeWidth="5" />
+          <g>
+            <circle r="15" fill="#fff" />
+            <circle r="9" fill="#058875" />
+            <animateMotion dur="6s" repeatCount="indefinite" path={route} />
+          </g>
+        </svg>
+      </div>
+      <div className="pscr__top">
+        <span className="pscr__menu" />
+        <div>
+          <small>Pickup</small>
+          <strong>Colombo Fort</strong>
+        </div>
+      </div>
+      <div className="pscr__sheet">
+        <span className="pscr__grab" />
+        <div className="pscr__driver">
+          <span className="scr__avatar" />
+          <div>
+            <strong>Driver arriving</strong>
+            <small>Toyota Prius · 3 min</small>
+          </div>
+          <em>4.9 ★</em>
+        </div>
+        <div className="pscr__trip">
+          <p>
+            <i />
+            Colombo Fort
+          </p>
+          <p>
+            <i className="is-end" />
+            Galle Face Green
+          </p>
+        </div>
+        <span className="pscr__btn">Track ride</span>
+      </div>
+    </div>
+  )
+}
